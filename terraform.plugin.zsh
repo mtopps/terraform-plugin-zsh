@@ -55,11 +55,11 @@ alias tf='terraform'
 alias tfaa="terraform apply -auto-approve"
 alias tfinit='tinitgcp'
 alias tff='terraform fmt -recursive'
-alias tfp='terraform plan'          # Plan Terraform changes
-alias tfsl='terraform state list'   # List Terraform state resources
-alias tfss='terraform state show'   # Show details of a Terraform state resource
-alias tfv='terraform validate'     # Validate Terraform configuration
-alias tfrm='rm -rf .terraform .terraform.lock.hcl'  # Remove Terraform cache
+alias tfp='terraform plan'
+alias tfsl='terraform state list'
+alias tfss='terraform state show'
+alias tfv='terraform validate'
+alias tfrm='rm -rf .terraform .terraform.lock.hcl'
 
 # List all Terraform commands provided by this plugin
 tflist() {
