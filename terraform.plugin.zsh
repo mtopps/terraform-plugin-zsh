@@ -53,7 +53,6 @@ tfu() {
 # Terraform aliases
 alias tf='terraform'
 alias tfaa="terraform apply -auto-approve"
-alias tfinit='tinitgcp'
 alias tff='terraform fmt -recursive'
 alias tfp='terraform plan'
 alias tfsl='terraform state list'
@@ -70,7 +69,6 @@ tflist() {
     "tfu:Detect and force-unlock a stuck terraform state lock"
     "tf:terraform"
     "tfaa:terraform apply -auto-approve"
-    "tfinit:tinitgcp"
     "tff:terraform fmt -recursive"
     "tfp:terraform plan"
     "tfsl:terraform state list"
