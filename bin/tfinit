@@ -1,0 +1,117 @@
+#!/usr/bin/env bash
+
+set -u
+
+debug=0
+if [[ ${1:-} = -d ]]; then
+    debug=1
+    set -x
+    shift
+fi
+
+if [[ $# -ne 1 ]]; then
+    echo "Usage: tfinit [-d] ENVIRONMENT" >&2
+    exit 4
+fi
+
+env=$1
+if project_path=$(git -C "$PWD" rev-parse --show-prefix 2>/dev/null) && [[ -n $project_path ]]; then
+    folder_name=${project_path%/}
+else
+    folder_name=$(basename "$PWD")
+fi
+config_file="$PWD/.tfinit"
+
+if [[ ! -r "$config_file" ]]; then
+    echo "Project config '$config_file' not found" >&2
+    exit 2
+fi
+
+declare -A state_location=()
+# shellcheck source=/dev/null
+. "$config_file"
+
+backend=
+while IFS= read -r backend_declaration; do
+    detected_backend=${backend_declaration#*\"}
+    detected_backend=${detected_backend%%\"*}
+
+    if [[ -z $backend ]]; then
+        backend=$detected_backend
+    elif [[ $backend != "$detected_backend" ]]; then
+        echo "Multiple Terraform backend types found in '$PWD'" >&2
+        exit 3
+    fi
+done < <(find "$PWD" -type f -name '*.tf' -exec grep -hE 'backend[[:space:]]+"(azurerm|gcs)"' {} + 2>/dev/null)
+
+if [[ $backend != azurerm && $backend != gcs ]]; then
+    echo "Terraform backend block not found in '$PWD': expected 'azurerm' or 'gcs'" >&2
+    exit 3
+fi
+
+if [[ -z ${state_location[$env]:-} ]]; then
+    known_envs=("${!state_location[@]}")
+    printf 'Unknown environment %q (known: %s)\n' "$env" "$(IFS=', '; echo "${known_envs[*]}")" >&2
+    exit 5
+fi
+
+state_path=${state_location[$env]}
+env_vars_file=
+for environment_directory in environments env; do
+    candidate="$PWD/$environment_directory/${env}.tfvars"
+    if [[ -f $candidate ]]; then
+        env_vars_file=$candidate
+        break
+    fi
+done
+
+if [[ -z $env_vars_file ]]; then
+    echo "Warning: environment vars file not found in '$PWD/environments' or '$PWD/env'" >&2
+fi
+
+if [[ $backend = azurerm ]]; then
+    IFS='/' read -r resource_group_name storage_account_name container_name extra_component <<<"$state_path"
+
+    if [[ -z ${resource_group_name:-} || -z ${storage_account_name:-} || -z ${container_name:-} || -n ${extra_component:-} ]]; then
+        echo "Invalid AzureRM state path '$state_path': expected 'resource-group/storage-account/container'" >&2
+        exit 6
+    fi
+
+    if ! subscription_id=$(az account show --query id -o tsv); then
+        echo "Unable to determine the current Azure subscription" >&2
+        exit 7
+    fi
+
+    key="${folder_name}/${env}/terraform.tfstate"
+
+    terraform init -reconfigure \
+        -backend-config="subscription_id=$subscription_id" \
+        -backend-config="resource_group_name=$resource_group_name" \
+        -backend-config="storage_account_name=$storage_account_name" \
+        -backend-config="container_name=$container_name" \
+        -backend-config="key=$key"
+else
+    if [[ $state_path != */* ]]; then
+        echo "Invalid GCS state path '$state_path': expected 'bucket/prefix'" >&2
+        exit 6
+    fi
+
+    bucket=${state_path%%/*}
+    base_prefix=${state_path#*/}
+
+    if [[ -z $bucket || -z $base_prefix ]]; then
+        echo "Invalid GCS state path '$state_path': expected 'bucket/prefix'" >&2
+        exit 6
+    fi
+
+    terraform init -reconfigure \
+        -backend-config="bucket=$bucket" \
+        -backend-config="prefix=$base_prefix"
+fi
+rc=$?
+
+if [[ $debug -eq 1 ]]; then
+    set +x
+fi
+
+exit "$rc"

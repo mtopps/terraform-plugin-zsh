@@ -1,0 +1,63 @@
+#!/usr/bin/env bash
+
+set -u
+
+usage() {
+    cat <<'EOF'
+Usage: tfvars-create <environments|env|envs> <environment>...
+
+Create a supported variable-file directory and an empty .tfvars file for each
+environment in the current Terraform root module.
+
+Examples:
+  tfvars-create environments dev nprd prod
+  tfvars-create env dev prod
+  tfvars-create envs sand
+
+Existing .tfvars files are not changed.
+EOF
+}
+
+case ${1:-} in
+    -h | --help)
+        usage
+        exit 0
+        ;;
+esac
+
+if [[ $# -lt 2 ]]; then
+    usage >&2
+    exit 4
+fi
+
+directory=$1
+shift
+
+case $directory in
+    environments | env | envs) ;;
+    *)
+        echo "Unsupported variable-file directory '$directory'" >&2
+        usage >&2
+        exit 4
+        ;;
+esac
+
+for environment in "$@"; do
+    if [[ ! $environment =~ ^[[:alnum:]_.-]+$ ]]; then
+        echo "Invalid environment '$environment': use letters, numbers, dots, underscores, or hyphens" >&2
+        exit 5
+    fi
+done
+
+mkdir -p "$directory" || exit 1
+
+for environment in "$@"; do
+    var_file="$directory/$environment.tfvars"
+    if [[ -e $var_file ]]; then
+        echo "Skipped existing $var_file"
+        continue
+    fi
+
+    : >"$var_file"
+    echo "Created $var_file"
+done

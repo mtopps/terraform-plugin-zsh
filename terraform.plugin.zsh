@@ -1,13 +1,33 @@
 0="${ZERO:-${${0:#$ZSH_ARGZERO}:-${(%):-%N}}}"
 0="${${(M)0:#/*}:-$PWD/$0}"
 
+path=("${0:h}/bin" $path)
+
 # Terraform functions
+_tf_var_file() {
+  local environment=$1
+  local directory
+
+  for directory in environments env envs; do
+    if [[ -f "$directory/$environment.tfvars" ]]; then
+      print -r -- "$directory/$environment.tfvars"
+      return 0
+    fi
+  done
+
+  echo "Environment vars file not found: expected environments/$environment.tfvars or env/$environment.tfvars or envs/$environment.tfvars" >&2
+  return 1
+}
+
 tfa() {
   if [[ -z "$1" ]]; then
     echo "Usage: tfa <environment>"
     return 1
   fi
-  terraform apply -var-file=environments/$1.tfvars
+
+  local var_file
+  var_file=$(_tf_var_file "$1") || return 1
+  terraform apply -var-file="$var_file"
 }
 
 tfc() {
@@ -15,7 +35,21 @@ tfc() {
     echo "Usage: tfc <environment>"
     return 1
   fi
-  terraform console -var-file=environments/$1.tfvars
+
+  local var_file
+  var_file=$(_tf_var_file "$1") || return 1
+  terraform console -var-file="$var_file"
+}
+
+tfi() {
+  if [[ $# -ne 3 ]]; then
+    echo "Usage: tfi <environment> <address> <id>"
+    return 1
+  fi
+
+  local var_file
+  var_file=$(_tf_var_file "$1") || return 1
+  terraform import -var-file="$var_file" "$2" "$3"
 }
 
 tpv() {
@@ -23,7 +57,10 @@ tpv() {
     echo "Usage: tpv <environment>"
     return 1
   fi
-  terraform plan -var-file=environments/$1.tfvars
+
+  local var_file
+  var_file=$(_tf_var_file "$1") || return 1
+  terraform plan -var-file="$var_file"
 }
 
 tfu() {
@@ -32,8 +69,11 @@ tfu() {
     return 1
   fi
 
+  local var_file
+  var_file=$(_tf_var_file "$1") || return 1
+
   # Run terraform plan to capture lock error
-  output=$(terraform plan -var-file=environments/$1.tfvars 2>&1)
+  output=$(terraform plan -var-file="$var_file" 2>&1)
 
   # Extract lock ID from error message (format: │   ID:        1784412084112552)
   lock_id=$(echo "$output" | grep "ID:" | head -1 | awk -F': ' '{print $2}' | xargs)
@@ -63,8 +103,12 @@ alias tfrm='rm -rf .terraform .terraform.lock.hcl'
 # List all Terraform commands provided by this plugin
 tflist() {
   local -a entries=(
+    "tfinit:Initialize an environment with its configured remote state"
+    "tfinit-create:Create a .tfinit configuration interactively"
+    "tfvars-create:Create environment .tfvars files"
     "tfa:Apply terraform with environment var-file"
     "tfc:Open terraform console with environment var-file"
+    "tfi:Import a resource into Terraform state"
     "tpv:Plan terraform with environment var-file"
     "tfu:Detect and force-unlock a stuck terraform state lock"
     "tf:terraform"
@@ -81,6 +125,6 @@ tflist() {
   for entry in "${entries[@]}"; do
     name="${entry%%:*}"
     desc="${entry#*:}"
-    printf "  %-8s %s\n" "$name" "$desc"
+    printf "  %-13s %s\n" "$name" "$desc"
   done
 }
